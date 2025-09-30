@@ -127,7 +127,7 @@ function App() {
     }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY as string });
 
         const originalImageBase64 = docImgUrl.startsWith('data:')
             ? docImgUrl.split(',')[1]
