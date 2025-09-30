@@ -29,9 +29,20 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
             p.updateWithProps = (newProps: P5CanvasProps) => {
                 if (newProps.docImgUrl && newProps.docImgUrl !== currentProps.docImgUrl) {
                     img = p.loadImage(newProps.docImgUrl, (loadedImg) => {
-                        view.zoom = 1;
-                        view.x = (p.width - loadedImg.width) / 2;
-                        view.y = (p.height - loadedImg.height) / 2;
+                        const canvasWidth = p.width;
+                        const canvasHeight = p.height;
+                        const imgAspectRatio = loadedImg.width / loadedImg.height;
+                        const canvasAspectRatio = canvasWidth / canvasHeight;
+
+                        if (imgAspectRatio > canvasAspectRatio) {
+                            view.zoom = canvasWidth / loadedImg.width * 0.95;
+                        } else {
+                            view.zoom = canvasHeight / loadedImg.height * 0.95;
+                        }
+
+                        view.x = (canvasWidth - loadedImg.width * view.zoom) / 2;
+                        view.y = (canvasHeight - loadedImg.height * view.zoom) / 2;
+
                         if(highlightLayer) {
                             highlightLayer.clear();
                             highlightLayer.resizeCanvas(loadedImg.width, loadedImg.height);
@@ -72,7 +83,7 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
             };
 
             p.draw = () => {
-                p.background(243, 244, 246);
+                p.background(241, 243, 244); // Google's light grey background color
                 p.push();
                 p.translate(view.x, view.y);
                 p.scale(view.zoom);
@@ -147,6 +158,14 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
                     view.y = y - (y - view.y) * (zoom / view.zoom);
                     view.zoom = zoom;
                 }
+                
+                // Adjust brush size with scroll wheel when highlighting
+                if(currentProps.highlighting && (event.ctrlKey || event.metaKey)) {
+                  props.onBrushSizeChange(props.brushSize + direction * 5); // A bit hacky, needs a callback prop
+                  return false; // Prevent zooming
+                }
+
+
                 return false;
             };
         };

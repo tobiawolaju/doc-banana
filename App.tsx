@@ -40,6 +40,22 @@ const blobUrlToBase64 = (blobUrl: string): Promise<string> => {
     });
 };
 
+const GoogleLoader = () => (
+    <div className="flex justify-center items-center">
+        <svg className="animate-spin h-10 w-10" viewBox="0 0 50 50">
+            <defs>
+                <linearGradient id="g-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style={{ stopColor: '#4285F4' }} />
+                    <stop offset="25%" style={{ stopColor: '#EA4335' }} />
+                    <stop offset="50%" style={{ stopColor: '#FBBC05' }} />
+                    <stop offset="100%" style={{ stopColor: '#34A853' }} />
+                </linearGradient>
+            </defs>
+            <circle cx="25" cy="25" r="20" fill="none" stroke="url(#g-grad)" strokeWidth="5" strokeLinecap="round" />
+        </svg>
+    </div>
+);
+
 
 function App() {
   const [docImgUrl, setDocImgUrl] = useState<string | null>(null);
@@ -53,6 +69,7 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null); // Kept for the right panel temporarily
   const [error, setError] = useState<string | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   
   const toggleHighlighting = useCallback(() => {
@@ -80,17 +97,15 @@ function App() {
         current.map(h => h.id === id ? { ...h, prompt: newPrompt } : h)
     );
   };
-
-  const handleTryAgain = () => {
+  
+  const handleTryAgain = useCallback(() => {
+    setDocImgUrl(null);
     setHighlights([]);
     setGeneratedImageUrl(null);
     setError(null);
     setHighlighting(false);
-    // This will trigger canvas clear if a doc is present
-    if (docImgUrl) {
-      setDocImgUrl(null); 
-    }
-  };
+  }, []);
+
 
   const handleSendToGenerate = () => {
     if (!docImgUrl) return;
@@ -161,6 +176,13 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
 
   }, [docImgUrl, highlights]);
 
+  const increaseBrushSize = useCallback(() => {
+    setBrushSize(prev => Math.min(prev + 5, 150));
+  }, []);
+
+  const decreaseBrushSize = useCallback(() => {
+    setBrushSize(prev => Math.max(prev - 5, 5));
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -170,29 +192,24 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
         toggleHighlighting();
       } else if (highlighting) {
           if (key === '+' || key === '=') {
-              setBrushSize(prev => Math.min(prev + 5, 150));
+              increaseBrushSize();
           } else if (key === '-') {
-              setBrushSize(prev => Math.max(prev - 5, 5));
+              decreaseBrushSize();
           }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleHighlighting, highlighting]);
+  }, [toggleHighlighting, highlighting, increaseBrushSize, decreaseBrushSize]);
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const processFile = useCallback(async (file: File) => {
     if (!file) return;
 
     if (docImgUrl && docImgUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(docImgUrl);
+        URL.revokeObjectURL(docImgUrl);
     }
     
-    // Reset highlights and other states for the new file
-    setHighlights([]);
-    setGeneratedImageUrl(null);
-    setError(null);
-    setHighlighting(false);
+    handleTryAgain();
 
     if (file.type === 'application/pdf') {
         const url = URL.createObjectURL(file);
@@ -211,23 +228,62 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
             setDocImgUrl(canvas.toDataURL());
         } catch (error) {
             console.error('Error processing PDF:', error);
-            alert("Could not load PDF file.");
+            setError("Could not load PDF file.");
         } finally {
             URL.revokeObjectURL(url);
         }
     } else if (file.type.startsWith('image/')) {
         setDocImgUrl(URL.createObjectURL(file));
     } else {
-        alert("Please select an image or PDF file.");
+        setError("Please select an image or PDF file.");
+    }
+  }, [docImgUrl, handleTryAgain]);
+  
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!docImgUrl) {
+        setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(false);
+    
+    if (docImgUrl) return;
+
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+        processFile(file);
     }
   };
 
   const isSendDisabled = highlights.length === 0 || highlights.some(h => h.prompt.trim() === '') || isGenerating;
-  const isTryAgainDisabled = (highlights.length === 0 && !generatedImageUrl && !docImgUrl) || isGenerating;
+  const isTryAgainDisabled = isGenerating;
 
   return (
-    <main className="w-screen h-screen bg-gray-100 text-gray-900 overflow-hidden font-sans flex flex-col md:flex-row">
-        <div className="w-full h-1/2 md:w-[60%] md:h-full relative">
+    <main className="w-screen h-screen bg-gray-50 text-gray-800 flex flex-col md:flex-row font-sans">
+        <div 
+            className="w-full h-1/2 md:w-[65%] md:h-full relative bg-[#f1f3f4]"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
             <P5Canvas 
                 docImgUrl={docImgUrl} 
                 highlighting={highlighting} 
@@ -239,16 +295,17 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
             />
             
             {isGenerating && (
-                <div className="absolute inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-20">
-                    <div className="text-center text-white">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
-                        <p className="mt-4 text-lg">Generating your document...</p>
+                <div className="absolute inset-0 bg-white bg-opacity-70 flex items-center justify-center z-20">
+                    <div className="text-center">
+                        <GoogleLoader />
+                        <p className="mt-4 text-lg font-medium text-gray-700">Applying edits...</p>
                     </div>
                 </div>
             )}
 
-            <div className="absolute top-4 left-4 z-10 flex space-x-2">
-                <label htmlFor="fileInput" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer shadow-lg transition-colors">
+            <div className="absolute top-4 left-4 z-10 flex space-x-2 items-center">
+                <label htmlFor="fileInput" className="flex items-center gap-2 px-4 py-2 bg-[#1a73e8] hover:bg-[#185abc] text-white font-medium rounded-full cursor-pointer shadow-md transition-all duration-200">
+                    <span className="material-symbols-outlined">upload_file</span>
                     Select Document
                 </label>
                 <input 
@@ -257,99 +314,110 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
                 />
                 <button onClick={toggleHighlighting}
                     disabled={!docImgUrl || isGenerating}
-                    className={`px-4 py-2 font-bold rounded-lg shadow-lg transition-colors ${
+                    className={`flex items-center gap-2 px-4 py-2 font-medium rounded-full shadow-md transition-all duration-200 ${
                         highlighting
-                            ? 'bg-red-600 hover:bg-red-700 text-white'
-                            : 'bg-green-600 hover:bg-green-700 text-white'
-                    } disabled:bg-gray-400 disabled:text-gray-200 disabled:cursor-not-allowed`}>
-                    {highlighting ? 'Stop Highlighting' : 'Start Highlighting'}
+                            ? 'bg-red-500 hover:bg-red-600 text-white'
+                            : 'bg-white hover:bg-gray-100 text-gray-700'
+                    } disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed`}>
+                     <span className="material-symbols-outlined">{highlighting ? 'edit_off' : 'edit'}</span>
+                    {highlighting ? 'Stop' : 'Highlight'}
                 </button>
+                {highlighting && (
+                    <div className="flex items-center bg-white rounded-full shadow-md">
+                        <button 
+                            onClick={decreaseBrushSize}
+                            disabled={isGenerating}
+                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-l-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                            aria-label="Decrease brush size"
+                        >
+                            <span className="material-symbols-outlined" style={{fontSize: '20px'}}>remove</span>
+                        </button>
+                        <span className="px-1 text-sm font-medium text-gray-700 select-none w-8 text-center">{brushSize}</span>
+                        <button 
+                            onClick={increaseBrushSize}
+                            disabled={isGenerating}
+                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-r-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                            aria-label="Increase brush size"
+                        >
+                            <span className="material-symbols-outlined" style={{fontSize: '20px'}}>add</span>
+                        </button>
+                    </div>
+                )}
             </div>
 
-            <div className="absolute bottom-4 left-4 z-10 bg-white bg-opacity-80 px-3 py-2 rounded-md select-none shadow-md border border-gray-200">
-                <p className="text-lg">
-                    Highlight mode: <span className={`font-bold ${highlighting ? 'text-blue-600' : 'text-gray-600'}`}>{highlighting ? 'ON' : 'OFF'}</span>
+            <div className="absolute bottom-4 left-4 z-10 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg select-none shadow-md border border-gray-200/50">
+                <p className="text-base font-medium">
+                    Highlight mode: <span className={`font-bold ${highlighting ? 'text-[#1a73e8]' : 'text-gray-600'}`}>{highlighting ? 'ON' : 'OFF'}</span>
                 </p>
-                <p className="text-sm text-gray-500">(Press 'a' to toggle)</p>
-                {highlighting && <p className="text-sm text-gray-500 mt-1">Brush Size: {brushSize} (+/-)</p>}
+                <p className="text-xs text-gray-500">(Press 'a' to toggle)</p>
+                {highlighting && <p className="text-xs text-gray-500 mt-1">Brush Size: {brushSize} (Scroll or use +/-)</p>}
             </div>
             
             {!docImgUrl && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="text-center p-8 bg-white bg-opacity-90 rounded-xl shadow-2xl border border-gray-200">
-                        <h1 className="text-3xl font-bold mb-2">AI Document Editor</h1>
-                        <p className="text-xl text-gray-600">Select an image or PDF to begin.</p>
+                <div className={`absolute inset-0 flex items-center justify-center p-8 transition-colors duration-200 ${isDraggingOver ? 'bg-blue-50' : ''}`}>
+                    <div className={`w-full h-full flex flex-col items-center justify-center bg-gray-50/20 border-4 border-dashed rounded-2xl text-center p-4 transition-colors duration-200 ${isDraggingOver ? 'border-blue-400' : 'border-gray-300'}`}>
+                        <span className="material-symbols-outlined text-6xl text-gray-400 mb-4">
+                            note_add
+                        </span>
+                        <p className="text-xl font-medium text-gray-600">
+                            Drag document here or <label htmlFor="fileInput" className="text-[#1a73e8] font-semibold cursor-pointer hover:underline">select document</label> to edit with a prompt.
+                        </p>
+                        <p className="text-sm text-gray-500 mt-2">Supports PDF and image files</p>
                     </div>
                 </div>
             )}
         </div>
 
-        <div className="w-full h-1/2 md:w-[40%] md:h-full bg-white border-t md:border-t-0 md:border-l border-gray-300 p-6 flex flex-col">
-            <div className="flex-grow overflow-y-auto pr-2">
-                <h2 className="text-2xl font-bold mb-4 text-gray-800 border-b pb-2">Generation Panel</h2>
+        <div className="w-full h-1/2 md:w-[35%] md:h-full bg-white border-t md:border-t-0 md:border-l border-gray-200 p-6 flex flex-col">
+            <header className="flex-shrink-0 pb-4 border-b border-gray-200">
+                <h2 className="text-xl font-medium text-gray-700">Edit Instructions</h2>
+            </header>
+            
+            <div className="flex-grow overflow-y-auto py-6 pr-2 -mr-2">
                 
-                {isGenerating && !error && (
-                    <div className="text-center text-gray-600 mt-10">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                        <p className="mt-4">Generating your document...</p>
-                        <p className="text-sm text-gray-500">This may take a moment.</p>
-                    </div>
-                )}
-
                 {error && (
-                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mt-4" role="alert">
-                        <strong className="font-bold">Error! </strong>
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mt-4" role="alert">
+                        <strong className="font-bold">Error: </strong>
                         <span className="block sm:inline">{error}</span>
                     </div>
                 )}
                 
-                {generatedImageUrl && !isGenerating && (
-                    <div>
-                        <h3 className="text-xl font-semibold mb-2">Generated Result:</h3>
-                        <img src={generatedImageUrl} alt="Generated Document" className="w-full rounded-lg border border-gray-300 shadow-md" />
+                <h3 className="text-lg font-medium mb-4 text-gray-600">Highlight Prompts</h3>
+                {highlights.length === 0 && !isGenerating && (
+                    <div className="text-center text-gray-500 mt-10 p-4 border-2 border-dashed rounded-lg">
+                        <p className="font-medium">Your prompts will appear here.</p>
+                        <p className="mt-2 text-sm">Press 'a' or click 'Highlight' to add an edit region.</p>
                     </div>
                 )}
-
-                {!isGenerating && !generatedImageUrl && (
-                    <>
-                        <h3 className="text-xl font-semibold mb-2">Highlight Prompts</h3>
-                        {highlights.length === 0 && (
-                            <div className="text-center text-gray-500 mt-10">
-                                <p>Your highlight prompts will appear here.</p>
-                                <p className="mt-2 text-sm">Press 'a' in the left panel to start a new highlight.</p>
-                            </div>
-                        )}
-                        <div className="space-y-4">
-                            {highlights.map((h, index) => (
-                                <div key={h.id} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                                    <label className="flex items-center font-semibold text-gray-700 mb-2">
-                                        <span className="w-5 h-5 rounded-full inline-block mr-3 border border-gray-300" style={{ backgroundColor: h.color }}></span>
-                                        Highlight #{index + 1}
-                                    </label>
-                                    <input type="text" value={h.prompt} onChange={(e) => handlePromptChange(h.id, e.target.value)}
-                                        placeholder={`Describe what this highlight means...`}
-                                        className="w-full px-3 py-2 text-gray-800 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
-            
-            <div className="flex-shrink-0 mt-auto pt-6 border-t border-gray-200">
                 <div className="space-y-4">
-                    <button onClick={handleSendToGenerate}
-                        className="w-full py-3 px-4 bg-yellow-400 text-black font-bold rounded-lg shadow-md transition-colors hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:bg-yellow-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-                        disabled={isSendDisabled}>
-                        {isGenerating ? 'Generating...' : 'Send to Nano Banana'}
-                    </button>
-                    <button onClick={handleTryAgain}
-                        className="w-full py-3 px-4 bg-gray-200 text-gray-800 font-bold rounded-lg shadow-md transition-colors hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
-                        disabled={isTryAgainDisabled}>
-                        Try Again
-                    </button>
+                    {highlights.map((h, index) => (
+                        <div key={h.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <label className="flex items-center font-medium text-gray-800 mb-2">
+                                <span className="w-6 h-6 rounded-full inline-block mr-3 border-2 border-white shadow-sm" style={{ backgroundColor: h.color }}></span>
+                                Highlight #{index + 1}
+                            </label>
+                            <input type="text" value={h.prompt} onChange={(e) => handlePromptChange(h.id, e.target.value)}
+                                placeholder={`e.g., "Remove this sentence"`}
+                                className="w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] transition-shadow"/>
+                        </div>
+                    ))}
                 </div>
             </div>
+            
+            <footer className="flex-shrink-0 mt-auto pt-6 border-t border-gray-200">
+                <div className="space-y-3">
+                    <button onClick={handleSendToGenerate}
+                        className="w-full py-3 px-4 bg-[#1a73e8] text-white font-medium text-lg rounded-lg shadow-md transition-all duration-200 hover:bg-[#185abc] focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:ring-offset-2 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        disabled={isSendDisabled}>
+                          {isGenerating ? <> <GoogleLoader /> Processing... </> : 'Apply Edits'}
+                    </button>
+                    <button onClick={handleTryAgain}
+                        className="w-full py-2 px-4 text-gray-600 font-medium rounded-lg transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:text-gray-400 disabled:cursor-not-allowed"
+                        disabled={isTryAgainDisabled}>
+                        Clear All & Start Over
+                    </button>
+                </div>
+            </footer>
         </div>
     </main>
   );

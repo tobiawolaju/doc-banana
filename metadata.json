@@ -1,5 +1,5 @@
 {
-  "name": "Interactive Document Highlighter",
-  "description": "An interactive web application that allows users to upload and highlight documents (images or PDFs) directly in the browser, using a p5.js canvas for a dynamic drawing experience.",
+  "name": "Doc Banana",
+  "description": "An interactive web application that allows users to upload and highlight documents (images or PDFs) directly in the browser and edit it via prompt and nano banana",
   "requestFramePermissions": []
 }
