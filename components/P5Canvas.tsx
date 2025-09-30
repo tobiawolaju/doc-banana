@@ -2,17 +2,19 @@ import React, { useRef, useEffect } from 'react';
 import p5 from 'p5';
 
 interface P5CanvasProps {
-  docImgUrl: string | null;
+  displayImgUrl: string | null;
+  fullResImgUrl: string | null;
   highlighting: boolean;
   brushSize: number;
   highlightColor: string;
   generationTrigger: boolean;
   onCompositeImageReady: (base64Data: string) => void;
   onGenerationTriggerConsumed: () => void;
+  onBrushSizeChange: (newSize: number) => void;
 }
 
 const P5Canvas: React.FC<P5CanvasProps> = (props) => {
-  const { docImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed } = props;
+  const { displayImgUrl, fullResImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed, onBrushSizeChange } = props;
   const sketchRef = useRef<HTMLDivElement>(null);
   const sketchInstanceRef = useRef<p5 | null>(null);
 
@@ -27,8 +29,8 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
             let currentProps: P5CanvasProps = { ...props };
             
             p.updateWithProps = (newProps: P5CanvasProps) => {
-                if (newProps.docImgUrl && newProps.docImgUrl !== currentProps.docImgUrl) {
-                    img = p.loadImage(newProps.docImgUrl, (loadedImg) => {
+                if (newProps.displayImgUrl && newProps.displayImgUrl !== currentProps.displayImgUrl) {
+                    img = p.loadImage(newProps.displayImgUrl, (loadedImg) => {
                         const canvasWidth = p.width;
                         const canvasHeight = p.height;
                         const imgAspectRatio = loadedImg.width / loadedImg.height;
@@ -50,26 +52,39 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
                             highlightLayer = p.createGraphics(loadedImg.width, loadedImg.height);
                         }
                     });
-                } else if (!newProps.docImgUrl && currentProps.docImgUrl) {
+                } else if (!newProps.displayImgUrl && currentProps.displayImgUrl) {
                     img = undefined;
                     if (highlightLayer) highlightLayer.clear();
                 }
 
                 if (newProps.generationTrigger && !currentProps.generationTrigger) {
-                  if (img && highlightLayer) {
-                    const result = p.createGraphics(img.width, img.height);
-                    result.image(img, 0, 0);
-                    result.tint(255, 128);
-                    result.image(highlightLayer, 0, 0);
-                    
-                    const dataUrl = result.elt.toDataURL('image/png');
-                    // Pass back just the base64 part
-                    newProps.onCompositeImageReady(dataUrl.split(',')[1]);
-                    newProps.onGenerationTriggerConsumed();
-                  } else {
-                    // If trigger happens with no image, just consume it.
-                    newProps.onGenerationTriggerConsumed();
-                  }
+                    if (highlightLayer && newProps.fullResImgUrl) {
+                        // This is async, so we manage consuming the trigger inside the callbacks
+                        p.loadImage(newProps.fullResImgUrl, (fullResImage) => {
+                            const finalComposite = p.createGraphics(fullResImage.width, fullResImage.height);
+                            // 1. Draw the original full-resolution image
+                            finalComposite.image(fullResImage, 0, 0);
+                            
+                            // 2. Apply tint for transparency
+                            finalComposite.tint(255, 128);
+
+                            // 3. Draw the (potentially smaller) highlight layer, scaling it up to fit
+                            finalComposite.image(highlightLayer, 0, 0, fullResImage.width, fullResImage.height);
+                            
+                            const dataUrl = finalComposite.elt.toDataURL('image/png');
+                            newProps.onCompositeImageReady(dataUrl.split(',')[1]);
+                            newProps.onGenerationTriggerConsumed();
+
+                            // 4. Clean up the graphics buffer to free memory
+                            finalComposite.remove();
+                        }, (err) => {
+                           console.error("Failed to load full-res image for composition", err);
+                           newProps.onGenerationTriggerConsumed(); // Consume trigger even on error
+                        });
+                    } else {
+                        // If trigger happens with no image, just consume it.
+                        newProps.onGenerationTriggerConsumed();
+                    }
                 }
 
                 currentProps = newProps;
@@ -149,8 +164,16 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
             p.mouseWheel = (event: any) => {
                 const { x, y, deltaY } = event;
                 if (x < 0 || x > p.width || y < 0 || y > p.height) return;
-                const zoomFactor = 0.05;
                 const direction = deltaY > 0 ? -1 : 1;
+
+                if (currentProps.highlighting) {
+                    const newSize = currentProps.brushSize + direction * 5;
+                    currentProps.onBrushSizeChange(newSize);
+                    return false; // Prevent default scroll and canvas zooming
+                }
+
+                // Default behavior: zoom the canvas
+                const zoomFactor = 0.05;
                 const newZoom = view.zoom * (1 + direction * zoomFactor);
                 const zoom = p.constrain(newZoom, 0.1, 10);
                 if (zoom !== view.zoom) {
@@ -158,15 +181,8 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
                     view.y = y - (y - view.y) * (zoom / view.zoom);
                     view.zoom = zoom;
                 }
-                
-                // Adjust brush size with scroll wheel when highlighting
-                if(currentProps.highlighting && (event.ctrlKey || event.metaKey)) {
-                  props.onBrushSizeChange(props.brushSize + direction * 5); // A bit hacky, needs a callback prop
-                  return false; // Prevent zooming
-                }
 
-
-                return false;
+                return false; // Prevent default browser scroll
             };
         };
         
@@ -183,9 +199,9 @@ const P5Canvas: React.FC<P5CanvasProps> = (props) => {
 
   useEffect(() => {
     if (sketchInstanceRef.current && (sketchInstanceRef.current as any).updateWithProps) {
-        (sketchInstanceRef.current as any).updateWithProps({ docImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed });
+        (sketchInstanceRef.current as any).updateWithProps({ displayImgUrl, fullResImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed, onBrushSizeChange });
     }
-  }, [docImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed]);
+  }, [displayImgUrl, fullResImgUrl, highlighting, brushSize, highlightColor, generationTrigger, onCompositeImageReady, onGenerationTriggerConsumed, onBrushSizeChange]);
 
   return <div ref={sketchRef} className="absolute top-0 left-0 w-full h-full" />;
 };
