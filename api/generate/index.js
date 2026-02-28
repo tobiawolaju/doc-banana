@@ -5,10 +5,10 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    const { originalImageBase64, compositeImageBase64, highlights } = req.body;
+    const { originalImageBase64, compositeImageBase64, highlights, mimeType = 'image/png' } = req.body;
 
     if (!originalImageBase64 || !compositeImageBase64 || !highlights) {
-        return res.status(400).json({ error: 'Missing required parameters' });
+        return res.status(400).json({ error: 'Missing required parameters: originalImageBase64, compositeImageBase64, or highlights' });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -30,7 +30,7 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
                 role: "user",
                 parts: [
                     { text: textPrompt },
-                    { inlineData: { mimeType: 'image/png', data: originalImageBase64 } },
+                    { inlineData: { mimeType: mimeType, data: originalImageBase64 } },
                     { inlineData: { mimeType: 'image/png', data: compositeImageBase64 } }
                 ]
             }],

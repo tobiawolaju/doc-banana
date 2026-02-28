@@ -168,7 +168,8 @@ function App() {
                 body: JSON.stringify({
                     originalImageBase64,
                     compositeImageBase64,
-                    highlights
+                    highlights,
+                    mimeType: 'image/jpeg'
                 }),
             });
 
@@ -245,14 +246,15 @@ function App() {
         handleTryAgain();
 
         const MAX_DISPLAY_DIMENSION = 2048;
+        const MAX_PROCESS_DIMENSION = 1536;
 
-        const downscaleImage = (dataUrl: string, maxWidth: number, maxHeight: number): Promise<string> => {
+        const downscaleImage = (dataUrl: string, maxWidth: number, maxHeight: number, format: string = 'image/png', quality: number = 0.92): Promise<string> => {
             return new Promise((resolve, reject) => {
                 const img = new Image();
                 img.onload = () => {
                     let { width, height } = img;
-                    if (width <= maxWidth && height <= maxHeight) {
-                        resolve(dataUrl); // No need to downscale
+                    if (width <= maxWidth && height <= maxHeight && format === 'image/png') {
+                        resolve(dataUrl); // No need to downscale if already small and using png
                         return;
                     }
 
@@ -275,7 +277,7 @@ function App() {
                         return reject(new Error('Could not get canvas context for downscaling'));
                     }
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/png'));
+                    resolve(canvas.toDataURL(format, quality));
                 };
                 img.onerror = (err) => reject(err);
                 img.src = dataUrl;
@@ -315,8 +317,9 @@ function App() {
                 return;
             }
 
-            setDocImgUrl(fullResDataUrl);
-            const downscaledUrl = await downscaleImage(fullResDataUrl, MAX_DISPLAY_DIMENSION, MAX_DISPLAY_DIMENSION);
+            const processedUrl = await downscaleImage(fullResDataUrl, MAX_PROCESS_DIMENSION, MAX_PROCESS_DIMENSION, 'image/jpeg', 0.8);
+            setDocImgUrl(processedUrl);
+            const downscaledUrl = await downscaleImage(processedUrl, MAX_DISPLAY_DIMENSION, MAX_DISPLAY_DIMENSION);
             setDisplayDocImgUrl(downscaledUrl);
 
         } catch (error: any) {
@@ -410,8 +413,8 @@ function App() {
                         <button onClick={toggleHighlighting}
                             disabled={!docImgUrl || isGenerating}
                             className={`flex items-center gap-2 px-4 py-2 font-medium rounded-full shadow-md transition-all duration-200 ${highlighting
-                                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                                    : 'bg-white hover:bg-gray-100 text-gray-700'
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-white hover:bg-gray-100 text-gray-700'
                                 } disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed`}>
                             <span className="material-symbols-outlined">{highlighting ? 'edit_off' : 'edit'}</span>
                             {highlighting ? 'Stop' : 'Highlight'}
