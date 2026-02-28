@@ -6,9 +6,9 @@ import P5Canvas from './components/P5Canvas';
 declare const pdfjsLib: any;
 
 interface Highlight {
-  id: number;
-  color: string;
-  prompt: string;
+    id: number;
+    color: string;
+    prompt: string;
 }
 
 // Function to generate a random, visually pleasing color in HSL format
@@ -58,479 +58,472 @@ const GoogleLoader = () => (
 
 
 function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [docImgUrl, setDocImgUrl] = useState<string | null>(null); // Full resolution
-  const [displayDocImgUrl, setDisplayDocImgUrl] = useState<string | null>(null); // Downscaled for performance
-  const [highlighting, setHighlighting] = useState(false);
-  const [brushSize, setBrushSize] = useState(40);
-  const [highlights, setHighlights] = useState<Highlight[]>([]);
-  const [currentColor, setCurrentColor] = useState<string>('#FFFF00'); // Default yellow
-  
-  // State for AI generation
-  const [generationTrigger, setGenerationTrigger] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [docImgUrl, setDocImgUrl] = useState<string | null>(null); // Full resolution
+    const [displayDocImgUrl, setDisplayDocImgUrl] = useState<string | null>(null); // Downscaled for performance
+    const [highlighting, setHighlighting] = useState(false);
+    const [brushSize, setBrushSize] = useState(40);
+    const [highlights, setHighlights] = useState<Highlight[]>([]);
+    const [currentColor, setCurrentColor] = useState<string>('#FFFF00'); // Default yellow
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
+    // State for AI generation
+    const [generationTrigger, setGenerationTrigger] = useState(false);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  useEffect(() => {
-    // On mobile devices, attempt to enter fullscreen after the first user interaction.
-    const enterFullscreenOnInteraction = () => {
-      const isMobile = /Mobi/i.test(window.navigator.userAgent);
-      if (isMobile && document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch(err => {
-          console.warn(`Could not enter fullscreen: ${err.message}`);
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setIsLoading(false);
+        }, 2000);
+        return () => clearTimeout(timer);
+    }, []);
+
+    useEffect(() => {
+        // On mobile devices, attempt to enter fullscreen after the first user interaction.
+        const enterFullscreenOnInteraction = () => {
+            const isMobile = /Mobi/i.test(window.navigator.userAgent);
+            if (isMobile && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.warn(`Could not enter fullscreen: ${err.message}`);
+                });
+            }
+        };
+
+        // Add a one-time listener for the first touch event.
+        document.body.addEventListener('touchstart', enterFullscreenOnInteraction, { once: true });
+
+        // Cleanup: remove the listener if the component unmounts before it fires.
+        return () => {
+            document.body.removeEventListener('touchstart', enterFullscreenOnInteraction);
+        };
+    }, []); // Empty dependency array ensures this effect runs only once.
+
+    const toggleHighlighting = useCallback(() => {
+        setHighlighting(prev => {
+            const isEnteringHighlightMode = !prev;
+            if (isEnteringHighlightMode) {
+                let newColor;
+                const existingColors = new Set(highlights.map(h => h.color));
+                do {
+                    newColor = generateRandomColor();
+                } while (existingColors.has(newColor));
+
+                setCurrentColor(newColor);
+                setHighlights(current => [
+                    ...current,
+                    { id: Date.now(), color: newColor, prompt: '' }
+                ]);
+            }
+            return !prev;
         });
-      }
+    }, [highlights]);
+
+    const handlePromptChange = (id: number, newPrompt: string) => {
+        setHighlights(current =>
+            current.map(h => h.id === id ? { ...h, prompt: newPrompt } : h)
+        );
     };
 
-    // Add a one-time listener for the first touch event.
-    document.body.addEventListener('touchstart', enterFullscreenOnInteraction, { once: true });
+    const handleTryAgain = useCallback(() => {
+        setDocImgUrl(null);
+        setDisplayDocImgUrl(null);
+        setHighlights([]);
+        setGeneratedImageUrl(null);
+        setError(null);
+        setHighlighting(false);
+    }, []);
 
-    // Cleanup: remove the listener if the component unmounts before it fires.
-    return () => {
-      document.body.removeEventListener('touchstart', enterFullscreenOnInteraction);
+
+    const handleSendToGenerate = () => {
+        if (!docImgUrl) return;
+        setError(null);
+        setGeneratedImageUrl(null);
+        setIsGenerating(true);
+        setGenerationTrigger(true); // Signal P5Canvas to create the composite image
     };
-  }, []); // Empty dependency array ensures this effect runs only once.
-  
-  const toggleHighlighting = useCallback(() => {
-      setHighlighting(prev => {
-          const isEnteringHighlightMode = !prev;
-          if (isEnteringHighlightMode) {
-              let newColor;
-              const existingColors = new Set(highlights.map(h => h.color));
-              do {
-                  newColor = generateRandomColor();
-              } while (existingColors.has(newColor));
 
-              setCurrentColor(newColor);
-              setHighlights(current => [
-                  ...current,
-                  { id: Date.now(), color: newColor, prompt: '' }
-              ]);
-          }
-          return !prev;
-      });
-  }, [highlights]);
+    const onGenerationTriggerConsumed = useCallback(() => {
+        setGenerationTrigger(false);
+    }, []);
 
-  const handlePromptChange = (id: number, newPrompt: string) => {
-    setHighlights(current => 
-        current.map(h => h.id === id ? { ...h, prompt: newPrompt } : h)
-    );
-  };
-  
-  const handleTryAgain = useCallback(() => {
-    setDocImgUrl(null);
-    setDisplayDocImgUrl(null);
-    setHighlights([]);
-    setGeneratedImageUrl(null);
-    setError(null);
-    setHighlighting(false);
-  }, []);
-
-
-  const handleSendToGenerate = () => {
-    if (!docImgUrl) return;
-    setError(null);
-    setGeneratedImageUrl(null);
-    setIsGenerating(true);
-    setGenerationTrigger(true); // Signal P5Canvas to create the composite image
-  };
-  
-  const onGenerationTriggerConsumed = useCallback(() => {
-      setGenerationTrigger(false);
-  }, []);
-
-  const onCompositeImageReady = useCallback(async (compositeImageBase64: string) => {
-    if (!docImgUrl) {
-        setError("Original document is missing.");
-        setIsGenerating(false);
-        return;
-    }
-
-    try {
-    
-       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY as string });
-        const originalImageBase64 = docImgUrl.startsWith('data:')
-            ? docImgUrl.split(',')[1]
-            : await blobUrlToBase64(docImgUrl);
-            
-        const textPrompt = `You are a visual document editor. You will be given an original image, a second image showing highlighted regions, and a set of instructions corresponding to each highlighted region. Your task is to apply the instructions to the original image and return the edited image. The final image must retain the original's style and quality.
-
-Here are the instructions for the edits:
-${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight #${i + 1}): "${h.prompt}"`).join('\n')}`;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image-preview',
-            contents: {
-                parts: [
-                    { text: textPrompt },
-                    { inlineData: { mimeType: 'image/png', data: originalImageBase64 } },
-                    { inlineData: { mimeType: 'image/png', data: compositeImageBase64 } }
-                ]
-            },
-            config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT],
-            },
-        });
-
-        const imagePart = response.candidates?.[0]?.content.parts.find(part => part.inlineData);
-
-        if (imagePart && imagePart.inlineData) {
-            const newImageDataUrl = `data:image/png;base64,${imagePart.inlineData.data}`;
-            // Replace the main document with the generated one and reset state
-            setHighlights([]);
-            setGeneratedImageUrl(null);
-            setError(null);
-            setHighlighting(false);
-            
-            // Process the new image to set both full-res and display versions
-            processFile(await (await fetch(newImageDataUrl)).blob());
-
-        } else {
-            const textResponse = response.text || "No image was generated. The model may have refused the request.";
-            setError(`Failed to generate document. Response: ${textResponse}`);
+    const onCompositeImageReady = useCallback(async (compositeImageBase64: string) => {
+        if (!docImgUrl) {
+            setError("Original document is missing.");
+            setIsGenerating(false);
+            return;
         }
 
-    } catch (e: any) {
-        console.error(e);
-        setError(`An error occurred: ${e.message}`);
-    } finally {
-        setIsGenerating(false);
-    }
+        try {
+            const originalImageBase64 = docImgUrl.startsWith('data:')
+                ? docImgUrl.split(',')[1]
+                : await blobUrlToBase64(docImgUrl);
 
-  }, [docImgUrl, highlights]);
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    originalImageBase64,
+                    compositeImageBase64,
+                    highlights
+                }),
+            });
 
-  const increaseBrushSize = useCallback(() => {
-    setBrushSize(prev => Math.min(prev + 5, 150));
-  }, []);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to generate document');
+            }
 
-  const decreaseBrushSize = useCallback(() => {
-    setBrushSize(prev => Math.max(prev - 5, 5));
-  }, []);
+            const data = await response.json();
 
-  const handleBrushSizeChange = useCallback((newSize: number) => {
-    // Clamp the value between 5 and 150, same as buttons
-    setBrushSize(Math.max(5, Math.min(newSize, 150)));
-  }, []);
+            if (data.success && data.image) {
+                const newImageDataUrl = `data:image/png;base64,${data.image}`;
+                // Replace the main document with the generated one and reset state
+                setHighlights([]);
+                setGeneratedImageUrl(null);
+                setError(null);
+                setHighlighting(false);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement).tagName === 'INPUT') return;
-      const key = event.key.toLowerCase();
-      if (key === 'a') {
-        toggleHighlighting();
-      } else if (highlighting) {
-          if (key === '+' || key === '=') {
-              increaseBrushSize();
-          } else if (key === '-') {
-              decreaseBrushSize();
-          }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleHighlighting, highlighting, increaseBrushSize, decreaseBrushSize]);
+                // Process the new image to set both full-res and display versions
+                processFile(await (await fetch(newImageDataUrl)).blob());
 
-  const processFile = useCallback(async (file: File) => {
-    if (!file) return;
+            } else {
+                setError(`Failed to generate document. ${data.error || 'No image was returned.'}`);
+            }
 
-    if (docImgUrl) {
-      if (docImgUrl.startsWith('blob:')) URL.revokeObjectURL(docImgUrl);
-      if (displayDocImgUrl && displayDocImgUrl.startsWith('blob:')) URL.revokeObjectURL(displayDocImgUrl);
-    }
-    
-    handleTryAgain();
+        } catch (e: any) {
+            console.error(e);
+            setError(`An error occurred: ${e.message}`);
+        } finally {
+            setIsGenerating(false);
+        }
 
-    const MAX_DISPLAY_DIMENSION = 2048;
+    }, [docImgUrl, highlights]);
 
-    const downscaleImage = (dataUrl: string, maxWidth: number, maxHeight: number): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                let { width, height } = img;
-                if (width <= maxWidth && height <= maxHeight) {
-                  resolve(dataUrl); // No need to downscale
-                  return;
+    const increaseBrushSize = useCallback(() => {
+        setBrushSize(prev => Math.min(prev + 5, 150));
+    }, []);
+
+    const decreaseBrushSize = useCallback(() => {
+        setBrushSize(prev => Math.max(prev - 5, 5));
+    }, []);
+
+    const handleBrushSizeChange = useCallback((newSize: number) => {
+        // Clamp the value between 5 and 150, same as buttons
+        setBrushSize(Math.max(5, Math.min(newSize, 150)));
+    }, []);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if ((event.target as HTMLElement).tagName === 'INPUT') return;
+            const key = event.key.toLowerCase();
+            if (key === 'a') {
+                toggleHighlighting();
+            } else if (highlighting) {
+                if (key === '+' || key === '=') {
+                    increaseBrushSize();
+                } else if (key === '-') {
+                    decreaseBrushSize();
                 }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [toggleHighlighting, highlighting, increaseBrushSize, decreaseBrushSize]);
 
-                if (width > height) {
-                    if (width > maxWidth) {
-                        height *= maxWidth / width;
-                        width = maxWidth;
+    const processFile = useCallback(async (file: File) => {
+        if (!file) return;
+
+        if (docImgUrl) {
+            if (docImgUrl.startsWith('blob:')) URL.revokeObjectURL(docImgUrl);
+            if (displayDocImgUrl && displayDocImgUrl.startsWith('blob:')) URL.revokeObjectURL(displayDocImgUrl);
+        }
+
+        handleTryAgain();
+
+        const MAX_DISPLAY_DIMENSION = 2048;
+
+        const downscaleImage = (dataUrl: string, maxWidth: number, maxHeight: number): Promise<string> => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width <= maxWidth && height <= maxHeight) {
+                        resolve(dataUrl); // No need to downscale
+                        return;
                     }
-                } else {
-                    if (height > maxHeight) {
-                        width *= maxHeight / height;
-                        height = maxHeight;
+
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height *= maxWidth / width;
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width *= maxHeight / height;
+                            height = maxHeight;
+                        }
                     }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        return reject(new Error('Could not get canvas context for downscaling'));
+                    }
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.onerror = (err) => reject(err);
+                img.src = dataUrl;
+            });
+        };
+
+        try {
+            let fullResDataUrl: string;
+
+            if (file.type === 'application/pdf') {
+                const url = URL.createObjectURL(file);
+                try {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+                    const pdf = await pdfjsLib.getDocument(url).promise;
+                    const page = await pdf.getPage(1);
+                    const viewport = page.getViewport({ scale: 2.0 });
+
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    if (!context) throw new Error("Could not get canvas context");
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    await page.render({ canvasContext: context, viewport }).promise;
+                    fullResDataUrl = canvas.toDataURL('image/png');
+                } finally {
+                    URL.revokeObjectURL(url);
                 }
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    return reject(new Error('Could not get canvas context for downscaling'));
-                }
-                ctx.drawImage(img, 0, 0, width, height);
-                resolve(canvas.toDataURL('image/png'));
-            };
-            img.onerror = (err) => reject(err);
-            img.src = dataUrl;
-        });
+            } else if (file.type.startsWith('image/')) {
+                fullResDataUrl = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = (error) => reject(error);
+                    reader.readAsDataURL(file);
+                });
+            } else {
+                setError("Please select an image or PDF file.");
+                return;
+            }
+
+            setDocImgUrl(fullResDataUrl);
+            const downscaledUrl = await downscaleImage(fullResDataUrl, MAX_DISPLAY_DIMENSION, MAX_DISPLAY_DIMENSION);
+            setDisplayDocImgUrl(downscaledUrl);
+
+        } catch (error: any) {
+            console.error('Error processing file:', error);
+            setError(`Could not load file. ${error.message || ''}`);
+        }
+    }, [docImgUrl, displayDocImgUrl, handleTryAgain]);
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            processFile(file);
+        }
     };
 
-    try {
-      let fullResDataUrl: string;
+    const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!docImgUrl) {
+            setIsDraggingOver(true);
+        }
+    };
 
-      if (file.type === 'application/pdf') {
-          const url = URL.createObjectURL(file);
-          try {
-              pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-              const pdf = await pdfjsLib.getDocument(url).promise;
-              const page = await pdf.getPage(1);
-              const viewport = page.getViewport({ scale: 2.0 });
-              
-              const canvas = document.createElement('canvas');
-              const context = canvas.getContext('2d');
-              if (!context) throw new Error("Could not get canvas context");
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-              await page.render({ canvasContext: context, viewport }).promise;
-              fullResDataUrl = canvas.toDataURL('image/png');
-          } finally {
-              URL.revokeObjectURL(url);
-          }
-      } else if (file.type.startsWith('image/')) {
-          fullResDataUrl = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = (error) => reject(error);
-              reader.readAsDataURL(file);
-          });
-      } else {
-          setError("Please select an image or PDF file.");
-          return;
-      }
-      
-      setDocImgUrl(fullResDataUrl);
-      const downscaledUrl = await downscaleImage(fullResDataUrl, MAX_DISPLAY_DIMENSION, MAX_DISPLAY_DIMENSION);
-      setDisplayDocImgUrl(downscaledUrl);
+    const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDraggingOver(false);
+    };
 
-    } catch (error: any) {
-        console.error('Error processing file:', error);
-        setError(`Could not load file. ${error.message || ''}`);
-    }
-  }, [docImgUrl, displayDocImgUrl, handleTryAgain]);
-  
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      processFile(file);
-    }
-  };
+    const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDraggingOver(false);
 
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!docImgUrl) {
-        setIsDraggingOver(true);
-    }
-  };
+        if (docImgUrl) return;
 
-  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDraggingOver(false);
-  };
+        const file = event.dataTransfer.files?.[0];
+        if (file) {
+            processFile(file);
+        }
+    };
 
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDraggingOver(false);
-    
-    if (docImgUrl) return;
+    const isSendDisabled = highlights.length === 0 || highlights.some(h => h.prompt.trim() === '') || isGenerating;
+    const isTryAgainDisabled = isGenerating;
 
-    const file = event.dataTransfer.files?.[0];
-    if (file) {
-        processFile(file);
-    }
-  };
-
-  const isSendDisabled = highlights.length === 0 || highlights.some(h => h.prompt.trim() === '') || isGenerating;
-  const isTryAgainDisabled = isGenerating;
-
-  return (
-    <>
-        <div
-            className={`fixed inset-0 bg-white flex flex-col items-center justify-center z-50 transition-opacity duration-500 ${
-            isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
-            aria-hidden={!isLoading}
-        >
-            <div className="relative">
-            <h1 className="text-5xl font-bold text-black font-sans">Banana Doc</h1>
-            <div className="absolute -top-2 -right-5 w-6 h-6 bg-yellow-400 rounded-full opacity-50"></div>
-            </div>
-        </div>
-        <main className="w-screen h-screen bg-gray-50 text-gray-800 flex flex-col md:flex-row font-sans">
-            <div 
-                className="w-full h-1/2 md:w-[65%] md:h-full relative bg-[#f1f3f4]"
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+    return (
+        <>
+            <div
+                className={`fixed inset-0 bg-white flex flex-col items-center justify-center z-50 transition-opacity duration-500 ${isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    }`}
+                aria-hidden={!isLoading}
             >
-                <P5Canvas 
-                    displayImgUrl={displayDocImgUrl}
-                    fullResImgUrl={docImgUrl}
-                    highlighting={highlighting} 
-                    brushSize={brushSize}
-                    highlightColor={currentColor}
-                    generationTrigger={generationTrigger}
-                    onCompositeImageReady={onCompositeImageReady}
-                    onGenerationTriggerConsumed={onGenerationTriggerConsumed}
-                    onBrushSizeChange={handleBrushSizeChange}
-                />
-                
-                {isGenerating && (
-                    <div className="absolute inset-0 bg-white bg-opacity-70 flex items-center justify-center z-20">
-                        <div className="text-center">
-                            <GoogleLoader />
-                            <p className="mt-4 text-lg font-medium text-gray-700">Applying edits...</p>
-                        </div>
-                    </div>
-                )}
-
-                <div className="absolute top-4 left-4 z-10 flex space-x-2 items-center">
-                    <input 
-                        id="fileInput" type="file" accept="image/*,.pdf" className="hidden"
-                        onChange={handleFileChange} onClick={(e) => (e.currentTarget.value = '')}
+                <div className="relative">
+                    <h1 className="text-5xl font-bold text-black font-sans">Banana Doc</h1>
+                    <div className="absolute -top-2 -right-5 w-6 h-6 bg-yellow-400 rounded-full opacity-50"></div>
+                </div>
+            </div>
+            <main className="w-screen h-screen bg-gray-50 text-gray-800 flex flex-col md:flex-row font-sans">
+                <div
+                    className="w-full h-1/2 md:w-[65%] md:h-full relative bg-[#f1f3f4]"
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                >
+                    <P5Canvas
+                        displayImgUrl={displayDocImgUrl}
+                        fullResImgUrl={docImgUrl}
+                        highlighting={highlighting}
+                        brushSize={brushSize}
+                        highlightColor={currentColor}
+                        generationTrigger={generationTrigger}
+                        onCompositeImageReady={onCompositeImageReady}
+                        onGenerationTriggerConsumed={onGenerationTriggerConsumed}
+                        onBrushSizeChange={handleBrushSizeChange}
                     />
-                    <button onClick={toggleHighlighting}
-                        disabled={!docImgUrl || isGenerating}
-                        className={`flex items-center gap-2 px-4 py-2 font-medium rounded-full shadow-md transition-all duration-200 ${
-                            highlighting
-                                ? 'bg-red-500 hover:bg-red-600 text-white'
-                                : 'bg-white hover:bg-gray-100 text-gray-700'
-                        } disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed`}>
-                         <span className="material-symbols-outlined">{highlighting ? 'edit_off' : 'edit'}</span>
-                        {highlighting ? 'Stop' : 'Highlight'}
-                    </button>
-                </div>
 
-                <div className="absolute bottom-4 left-4 z-10 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg select-none shadow-md border border-gray-200/50 flex items-center space-x-4">
-                    <div>
-                        <p className="text-base font-medium">
-                            Highlight mode: <span className={`font-bold ${highlighting ? 'text-[#1a73e8]' : 'text-gray-600'}`}>{highlighting ? 'ON' : 'OFF'}</span>
-                        </p>
-                        <p className="text-xs text-gray-500">(Press 'a' to toggle)</p>
-                    </div>
-                    {highlighting && (
-                        <>
-                            <div className="w-px h-10 bg-gray-200" />
-                            <div>
-                                 <p className="text-sm font-medium text-gray-600 text-center mb-1">Brush Size</p>
-                                <div className="flex items-center bg-white rounded-full shadow-md">
-                                    <button 
-                                        onClick={decreaseBrushSize}
-                                        disabled={isGenerating}
-                                        className="p-2 text-gray-700 hover:bg-gray-100 rounded-l-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                                        aria-label="Decrease brush size"
-                                    >
-                                        <span className="material-symbols-outlined" style={{fontSize: '20px'}}>remove</span>
-                                    </button>
-                                    <span className="px-1 text-sm font-medium text-gray-700 select-none w-8 text-center">{brushSize}</span>
-                                    <button 
-                                        onClick={increaseBrushSize}
-                                        disabled={isGenerating}
-                                        className="p-2 text-gray-700 hover:bg-gray-100 rounded-r-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                                        aria-label="Increase brush size"
-                                    >
-                                        <span className="material-symbols-outlined" style={{fontSize: '20px'}}>add</span>
-                                    </button>
-                                </div>
-                                 <p className="text-xs text-gray-500 mt-1 text-center">(or scroll)</p>
+                    {isGenerating && (
+                        <div className="absolute inset-0 bg-white bg-opacity-70 flex items-center justify-center z-20">
+                            <div className="text-center">
+                                <GoogleLoader />
+                                <p className="mt-4 text-lg font-medium text-gray-700">Applying edits...</p>
                             </div>
-                        </>
+                        </div>
                     )}
-                </div>
-                
-                {!docImgUrl && (
-                    <div className={`absolute inset-0 flex items-center justify-center p-8 transition-colors duration-200 ${isDraggingOver ? 'bg-blue-50' : ''}`}>
-                        <div className={`w-full h-full flex flex-col items-center justify-center bg-gray-50/20 border-4 border-dashed rounded-2xl text-center p-4 transition-colors duration-200 ${isDraggingOver ? 'border-blue-400' : 'border-gray-300'}`}>
-                            <span className="material-symbols-outlined text-6xl text-gray-400 mb-4">
-                                note_add
-                            </span>
-                            <p className="text-xl font-medium text-gray-600">
-                                Drag document here or <label htmlFor="fileInput" className="text-[#1a73e8] font-semibold cursor-pointer hover:underline">select document</label> to edit with a prompt.
+
+                    <div className="absolute top-4 left-4 z-10 flex space-x-2 items-center">
+                        <input
+                            id="fileInput" type="file" accept="image/*,.pdf" className="hidden"
+                            onChange={handleFileChange} onClick={(e) => (e.currentTarget.value = '')}
+                        />
+                        <button onClick={toggleHighlighting}
+                            disabled={!docImgUrl || isGenerating}
+                            className={`flex items-center gap-2 px-4 py-2 font-medium rounded-full shadow-md transition-all duration-200 ${highlighting
+                                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                                    : 'bg-white hover:bg-gray-100 text-gray-700'
+                                } disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed`}>
+                            <span className="material-symbols-outlined">{highlighting ? 'edit_off' : 'edit'}</span>
+                            {highlighting ? 'Stop' : 'Highlight'}
+                        </button>
+                    </div>
+
+                    <div className="absolute bottom-4 left-4 z-10 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg select-none shadow-md border border-gray-200/50 flex items-center space-x-4">
+                        <div>
+                            <p className="text-base font-medium">
+                                Highlight mode: <span className={`font-bold ${highlighting ? 'text-[#1a73e8]' : 'text-gray-600'}`}>{highlighting ? 'ON' : 'OFF'}</span>
                             </p>
-                            <p className="text-sm text-gray-500 mt-2">Supports PDF and image files</p>
+                            <p className="text-xs text-gray-500">(Press 'a' to toggle)</p>
                         </div>
+                        {highlighting && (
+                            <>
+                                <div className="w-px h-10 bg-gray-200" />
+                                <div>
+                                    <p className="text-sm font-medium text-gray-600 text-center mb-1">Brush Size</p>
+                                    <div className="flex items-center bg-white rounded-full shadow-md">
+                                        <button
+                                            onClick={decreaseBrushSize}
+                                            disabled={isGenerating}
+                                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-l-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                                            aria-label="Decrease brush size"
+                                        >
+                                            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>remove</span>
+                                        </button>
+                                        <span className="px-1 text-sm font-medium text-gray-700 select-none w-8 text-center">{brushSize}</span>
+                                        <button
+                                            onClick={increaseBrushSize}
+                                            disabled={isGenerating}
+                                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-r-full disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                                            aria-label="Increase brush size"
+                                        >
+                                            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>add</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1 text-center">(or scroll)</p>
+                                </div>
+                            </>
+                        )}
                     </div>
-                )}
-            </div>
 
-            <div className="w-full h-1/2 md:w-[35%] md:h-full bg-white border-t md:border-t-0 md:border-l border-gray-200 p-6 flex flex-col">
-                <header className="flex-shrink-0 pb-4 border-b border-gray-200">
-                    <h2 className="text-xl font-medium text-gray-700">Edit Instructions</h2>
-                </header>
-                
-                <div className="flex-grow overflow-y-auto py-6 pr-2 -mr-2">
-                    
-                    {error && (
-                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mt-4" role="alert">
-                            <strong className="font-bold">Error: </strong>
-                            <span className="block sm:inline">{error}</span>
-                        </div>
-                    )}
-                    
-                    <h3 className="text-lg font-medium mb-4 text-gray-600">Highlight Prompts</h3>
-                    {highlights.length === 0 && !isGenerating && (
-                        <div className="text-center text-gray-500 mt-10 p-4 border-2 border-dashed rounded-lg">
-                            <p className="font-medium">Your prompts will appear here.</p>
-                            <p className="mt-2 text-sm">Press 'a' or click 'Highlight' to add an edit region.</p>
-                        </div>
-                    )}
-                    <div className="space-y-4">
-                        {highlights.map((h, index) => (
-                            <div key={h.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <label className="flex items-center font-medium text-gray-800 mb-2">
-                                    <span className="w-6 h-6 rounded-full inline-block mr-3 border-2 border-white shadow-sm" style={{ backgroundColor: h.color }}></span>
-                                    Highlight #{index + 1}
-                                </label>
-                                <input type="text" value={h.prompt} onChange={(e) => handlePromptChange(h.id, e.target.value)}
-                                    placeholder={`e.g., "Remove this sentence"`}
-                                    className="w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] transition-shadow"/>
+                    {!docImgUrl && (
+                        <div className={`absolute inset-0 flex items-center justify-center p-8 transition-colors duration-200 ${isDraggingOver ? 'bg-blue-50' : ''}`}>
+                            <div className={`w-full h-full flex flex-col items-center justify-center bg-gray-50/20 border-4 border-dashed rounded-2xl text-center p-4 transition-colors duration-200 ${isDraggingOver ? 'border-blue-400' : 'border-gray-300'}`}>
+                                <span className="material-symbols-outlined text-6xl text-gray-400 mb-4">
+                                    note_add
+                                </span>
+                                <p className="text-xl font-medium text-gray-600">
+                                    Drag document here or <label htmlFor="fileInput" className="text-[#1a73e8] font-semibold cursor-pointer hover:underline">select document</label> to edit with a prompt.
+                                </p>
+                                <p className="text-sm text-gray-500 mt-2">Supports PDF and image files</p>
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    )}
                 </div>
-                
-                <footer className="flex-shrink-0 mt-auto pt-6 border-t border-gray-200">
-                    <div className="space-y-3">
-                        <button onClick={handleSendToGenerate}
-                            className="w-full py-3 px-4 bg-yellow-400 text-black font-medium text-lg rounded-lg shadow-md transition-all duration-200 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            disabled={isSendDisabled}>
-                              {isGenerating ? <> <GoogleLoader /> Processing... </> : 'Go Bananas'}
-                        </button>
-                        <button onClick={handleTryAgain}
-                            className="w-full py-2 px-4 text-gray-600 font-medium rounded-lg transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:text-gray-400 disabled:cursor-not-allowed"
-                            disabled={isTryAgainDisabled}>
-                            Clear All & Start Over
-                        </button>
+
+                <div className="w-full h-1/2 md:w-[35%] md:h-full bg-white border-t md:border-t-0 md:border-l border-gray-200 p-6 flex flex-col">
+                    <header className="flex-shrink-0 pb-4 border-b border-gray-200">
+                        <h2 className="text-xl font-medium text-gray-700">Edit Instructions</h2>
+                    </header>
+
+                    <div className="flex-grow overflow-y-auto py-6 pr-2 -mr-2">
+
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mt-4" role="alert">
+                                <strong className="font-bold">Error: </strong>
+                                <span className="block sm:inline">{error}</span>
+                            </div>
+                        )}
+
+                        <h3 className="text-lg font-medium mb-4 text-gray-600">Highlight Prompts</h3>
+                        {highlights.length === 0 && !isGenerating && (
+                            <div className="text-center text-gray-500 mt-10 p-4 border-2 border-dashed rounded-lg">
+                                <p className="font-medium">Your prompts will appear here.</p>
+                                <p className="mt-2 text-sm">Press 'a' or click 'Highlight' to add an edit region.</p>
+                            </div>
+                        )}
+                        <div className="space-y-4">
+                            {highlights.map((h, index) => (
+                                <div key={h.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                    <label className="flex items-center font-medium text-gray-800 mb-2">
+                                        <span className="w-6 h-6 rounded-full inline-block mr-3 border-2 border-white shadow-sm" style={{ backgroundColor: h.color }}></span>
+                                        Highlight #{index + 1}
+                                    </label>
+                                    <input type="text" value={h.prompt} onChange={(e) => handlePromptChange(h.id, e.target.value)}
+                                        placeholder={`e.g., "Remove this sentence"`}
+                                        className="w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1a73e8] transition-shadow" />
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </footer>
-            </div>
-        </main>
-    </>
-  );
+
+                    <footer className="flex-shrink-0 mt-auto pt-6 border-t border-gray-200">
+                        <div className="space-y-3">
+                            <button onClick={handleSendToGenerate}
+                                className="w-full py-3 px-4 bg-yellow-400 text-black font-medium text-lg rounded-lg shadow-md transition-all duration-200 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                disabled={isSendDisabled}>
+                                {isGenerating ? <> <GoogleLoader /> Processing... </> : 'Go Bananas'}
+                            </button>
+                            <button onClick={handleTryAgain}
+                                className="w-full py-2 px-4 text-gray-600 font-medium rounded-lg transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                disabled={isTryAgainDisabled}>
+                                Clear All & Start Over
+                            </button>
+                        </div>
+                    </footer>
+                </div>
+            </main>
+        </>
+    );
 }
 
 export default App;
