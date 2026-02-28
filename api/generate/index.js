@@ -17,15 +17,14 @@ export default async function handler(req, res) {
     }
 
     try {
-        const genAI = new GoogleGenAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" }); // Using a stable version, or keep as per App.tsx if preferred
-
         const textPrompt = `You are a visual document editor. You will be given an original image, a second image showing highlighted regions, and a set of instructions corresponding to each highlighted region. Your task is to apply the instructions to the original image and return the edited image. The final image must retain the original's style and quality.
 
 Here are the instructions for the edits:
 ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight #${i + 1}): "${h.prompt}"`).join('\n')}`;
 
-        const result = await model.generateContent({
+        const genAI = new GoogleGenAI({ apiKey });
+        const result = await genAI.models.generateContent({
+            model: 'gemini-2.0-flash-exp',
             contents: [{
                 role: "user",
                 parts: [
@@ -34,8 +33,8 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
                     { inlineData: { mimeType: 'image/png', data: compositeImageBase64 } }
                 ]
             }],
-            generationConfig: {
-                responseModalities: ["IMAGE", "TEXT"],
+            config: {
+                responseModalities: [Modality.IMAGE, Modality.TEXT],
             }
         });
 
