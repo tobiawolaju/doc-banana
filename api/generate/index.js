@@ -24,7 +24,7 @@ ${highlights.map((h, i) => `For the region highlighted in ${h.color} (Highlight 
 
         const genAI = new GoogleGenAI({ apiKey });
         const result = await genAI.models.generateContent({
-            model: 'gemini-2.0-flash-exp-image-generation',
+            model: 'gemini-2.5-flash-image',
             contents: [{
                 role: "user",
                 parts: [
